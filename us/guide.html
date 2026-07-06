@@ -1,0 +1,186 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>미국 전략 가이드</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Malgun Gothic',sans-serif;
+  background:#f5f4ef;color:#1a1a18;line-height:1.7}
+.hdr{background:#fff;border-bottom:1px solid #e0dfd8;height:52px;display:flex;align-items:center;
+  gap:10px;padding:0 20px;position:sticky;top:0;z-index:20}
+.hdr h1{font-size:16px;font-weight:600}
+.hdr a{margin-left:auto;font-size:12px;color:#185FA5;text-decoration:none;border:1px solid #d3d1c7;
+  padding:5px 11px;border-radius:6px}
+.layout{display:flex;max-width:1080px;margin:0 auto;gap:20px;padding:20px 16px;align-items:flex-start}
+.toc{width:220px;flex:none;position:sticky;top:72px;background:#fff;border:1px solid #e0dfd8;
+  border-radius:12px;padding:14px;font-size:13px}
+.toc-t{font-size:11px;color:#73726c;text-transform:uppercase;letter-spacing:.05em;margin:10px 0 6px}
+.toc-t:first-child{margin-top:0}
+.toc a{display:block;color:#3a3a37;text-decoration:none;padding:4px 8px;border-radius:6px;margin-bottom:1px}
+.toc a:hover{background:#f0f4ff;color:#185FA5}
+.main{flex:1;min-width:0}
+.sec{background:#fff;border:1px solid #e0dfd8;border-radius:12px;padding:20px 22px;margin-bottom:14px}
+.sec h2{font-size:18px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.sec .lead{color:#73726c;font-size:13px;margin-bottom:14px}
+.sec h3{font-size:14px;margin:16px 0 6px;color:#185FA5}
+.sec p{font-size:13.5px;margin-bottom:8px}
+.sec ul{margin:6px 0 10px 18px;font-size:13.5px}
+.sec li{margin-bottom:4px}
+.callout{background:#FCF6EC;border:1px solid #EAD9BC;border-radius:10px;padding:12px 14px;margin:12px 0;font-size:13px}
+.callout.blue{background:#EEF4FB;border-color:#CADCF0}
+.callout.red{background:#FCEBEB;border-color:#EBC9C9}
+.callout b{color:#8a5a0b}
+.callout.blue b{color:#185FA5}.callout.red b{color:#A32D2D}
+table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
+th{background:#faf9f5;padding:7px 9px;text-align:left;font-size:11px;color:#73726c;border-bottom:1px solid #e0dfd8}
+td{padding:7px 9px;border-bottom:.5px solid #f0ede6;vertical-align:top}
+.gate{font-weight:700;color:#185FA5;white-space:nowrap}
+.tag{display:inline-block;font-size:10px;padding:1px 7px;border-radius:99px;font-weight:600}
+.tg{background:#EAF3DE;color:#3B6D11}.ta{background:#FAEEDA;color:#854F0B}.tr{background:#FCEBEB;color:#A32D2D}
+code{background:#f2f0ea;padding:1px 6px;border-radius:4px;font-size:12px;font-family:Consolas,monospace}
+.step-badge{font-size:10px;background:#185FA5;color:#fff;padding:2px 8px;border-radius:99px;font-weight:600}
+.foot{text-align:center;color:#a9a89f;font-size:11px;padding:10px}
+@media(max-width:800px){.toc{display:none}.layout{padding:16px}}
+</style></head><body>
+<div class="hdr"><h1>📖 미국 추세매매 전략 가이드</h1>
+  <a href="dashboard.html">← 대시보드로</a></div>
+<div class="layout">
+  <nav class="toc">
+    <div class="toc-t">시작</div>
+    <a href="#flow">① 매일 운영 순서</a>
+    <a href="#why">② 왜 순서가 중요한가</a>
+    <div class="toc-t">종목 발굴</div>
+    <a href="#gates">③ 5-Gate 퍼널</a>
+    <a href="#state">④ 상태 vs 이벤트</a>
+    <div class="toc-t">실행 · 관리</div>
+    <a href="#entry">⑤ 진입 규칙</a>
+    <a href="#exit">⑥ 청산 사다리</a>
+    <div class="toc-t">참고</div>
+    <a href="#read">⑦ 대시보드 읽는 법</a>
+    <a href="#toss">⑧ 토스 연동(선택)</a>
+    <a href="#terms">⑨ 용어 사전</a>
+    <a href="#bt">⑩ 백테스트 주의</a>
+  </nav>
+  <main class="main">
+
+  <div class="sec" id="flow">
+    <h2>⏰ ① 매일 운영 순서</h2>
+    <div class="lead">미국장 마감(한국 아침) 후 완성된 종가로 다음 세션 매매를 준비하는 EOD 방식입니다.</div>
+    <p>자동 스케줄러가 <b>매일 아침 8시</b>에 아래를 자동 실행합니다. 컴퓨터가 꺼져 있었으면 켤 때 따라잡습니다. 직접 돌리려면 <code>매일아침_실행.bat</code> 더블클릭.</p>
+    <ol style="margin:6px 0 0 18px;font-size:13.5px">
+      <li><code>collect_data.py</code> — S&amp;P 500+400+600 약 1500종목 일봉 갱신 (yfinance)</li>
+      <li><code>scan.py</code> — 5-Gate 스캔 → 오늘의 시그널/관찰풀</li>
+      <li><code>order_gen.py</code> — dry-run 매수 지시서</li>
+      <li><code>paper_track.py run</code> — 모의 체결·청산·수익률</li>
+      <li><code>dashboard.py</code> — 대시보드 갱신</li>
+    </ol>
+    <div class="callout red"><b>⚠️ 전부 모의(dry-run)입니다.</b> 실제 주문은 나가지 않아요. 검증 단계입니다.</div>
+  </div>
+
+  <div class="sec" id="why">
+    <h2>🎯 ② 왜 순서가 중요한가 (Top-Down)</h2>
+    <p><b>시장 → 산업 → 종목</b> 순으로 거르는 게 오닐(O'Neil)식 의사결정이에요. 개별 종목이 아무리 좋아도 <b>시장이 하락장이거나 그 종목의 산업이 약하면</b> 확률이 낮습니다. 그래서 우리 퍼널도 시장(G0)·산업(G1)을 먼저 통과시킨 뒤 종목을 봅니다. IBD Market Pulse가 이 사고의 뿌리예요.</p>
+  </div>
+
+  <div class="sec" id="gates">
+    <h2>🚪 ③ 5-Gate 퍼널 <span class="step-badge">종목 발굴 핵심</span></h2>
+    <div class="lead">한 종목이 '오늘 시그널'이 되려면 아래 5개 관문을 <b>전부</b> 통과해야 합니다.</div>
+    <table>
+      <tr><th>관문</th><th>조건</th><th>의미</th></tr>
+      <tr><td class="gate">G0 시장</td><td>SPY 레짐이 진입 허용 상태<br>(Confirmed Uptrend / Under Pressure / Rally Attempt)</td><td>하락장이면 신규 매수 차단(최대 방어)</td></tr>
+      <tr><td class="gate">G1 산업</td><td>소속 산업 강도(theme) 백분위 ≥ 60</td><td>약한 산업 종목은 강해도 패스</td></tr>
+      <tr><td class="gate">G2 피벗</td><td>베이스 패턴 + 피벗 근접(-3~+0.5%)</td><td>돌파 자리에 와 있는가</td></tr>
+      <tr><td class="gate">G3 돌파</td><td>RS Line 252일 신고가 + RS 가속</td><td>오늘 상대강도가 '터진' 이벤트</td></tr>
+      <tr><td class="gate">G4 품질</td><td>종합점수 ≥ 중앙값 + A/D ≥ 45 + 추세템플릿 6/8↑</td><td>매집·추세 품질 확인</td></tr>
+    </table>
+    <div class="callout blue"><b>국장과 차이:</b> 미장은 A/D·패턴 엔진이 이미 정교해 G3를 'RS 신고가+가속'으로 씁니다. 국장은 여기에 '52주 신고가 돌파'와 '유동성(거래대금)' 관문이 추가돼 있어요.</div>
+  </div>
+
+  <div class="sec" id="state">
+    <h2>🔀 ④ 상태 vs 이벤트</h2>
+    <p><b>관찰 풀</b>은 '좋은 상태'(Stage2 + RS 높음)의 종목이에요 — 매일 수백 개씩 나옵니다. <b>시그널</b>은 그중 '오늘 트리거가 터진' 이벤트예요 — 하루 몇 건.</p>
+    <div class="callout blue"><b>핵심:</b> 좋은 종목 200개여도 오늘 당장 살 건 몇 개뿐. 그 '타이밍'을 골라주는 게 시그널입니다. (실측: 관찰 224 → 시그널 7~10건)</div>
+  </div>
+
+  <div class="sec" id="entry">
+    <h2>🛒 ⑤ 진입 규칙</h2>
+    <ul>
+      <li><b>사이징</b>: 원금의 10%/종목 · 최대 10종목 · 하루 신규 3건</li>
+      <li><b>지정가</b>: 종가 × 1.02 (+2% 버퍼, 갭업 추격 방지)</li>
+      <li><b>체결</b>: 대기 주문 → 다음 거래일 저가가 지정가 이하면 체결(체결가=min(시가,지정가)). 갭업으로 못 닿으면 미체결</li>
+      <li><b>진입 가드</b>: 피벗거리(-10~+5% 밖 skip) · 가격괴리(스캔가 vs 실시간 20%+ skip) · 실적 D-7 skip · 고가주 skip</li>
+    </ul>
+  </div>
+
+  <div class="sec" id="exit">
+    <h2>📉 ⑥ 청산 사다리 (매일 평가)</h2>
+    <div class="lead">손절은 짧게, 이익은 길게. 우선순위 위에서부터 검사합니다.</div>
+    <h3>1. 하드스톱 (-7%)</h3>
+    <p>진입가 -7% 이탈 시 전량. 미장 프로토콜 기준(-7%)입니다. (국장은 스탁이지 맞춰 -8%.) 아래 래칫으로 점점 올라갑니다.</p>
+    <h3>2. Lock 래칫 (스톱 단조 상향 — 절대 안 내림)</h3>
+    <table>
+      <tr><th>도달 최고수익</th><th>+5%</th><th>+25%</th><th>+50%</th><th>+100%</th><th>+200%</th><th>+300%</th><th>+500%</th></tr>
+      <tr><td>스톱 상향</td><td>본전(0%)</td><td>+10%</td><td>+25%</td><td>+70%</td><td>+150%</td><td>+250%</td><td>+400%</td></tr>
+    </table>
+    <p>수익이 날수록 손절선이 따라 올라가 '잃을 수 없는 상태'가 됩니다. L7까지 확장해 대박주를 보호해요.</p>
+    <h3>3. 부분 익절 · 추세 이탈</h3>
+    <ul>
+      <li><b>+25% 도달</b> → 1/3 익절 (이익 실현 + 래칫 +10%)</li>
+      <li><b>50일선 이탈</b> → 추가 1/3 익절 (추세 약화 1차)</li>
+      <li><b>200일선 이탈</b> → 잔여 전량 (장기추세 붕괴)</li>
+      <li><b>RS&lt;70 정체</b> → 교체 (dead money 회피)</li>
+    </ul>
+    <h3>4. 대박주 보호</h3>
+    <ul>
+      <li><b>8주 룰</b>: 진입 15영업일 내 +20% 도달 → 40영업일간 재량 매도 보류 (monster winner 보호)</li>
+      <li><b>런너 승격</b>: 최고수익 +100% 넘으면 RS 이탈 매도 면제 → 추세만 따라감 (승자는 놔둔다)</li>
+    </ul>
+    <div class="callout"><b>충돌 방지:</b> 같은 물량에 전량 규칙 2개를 걸지 않아요. 1/3씩 계층으로 나눠 팔고, 그 아래 래칫 스톱이 바닥을 받칩니다.</div>
+  </div>
+
+  <div class="sec" id="read">
+    <h2>📊 ⑦ 대시보드 읽는 법</h2>
+    <ul>
+      <li><b>총자산 카드</b>: 현금 + 보유평가. 수익=<span style="color:#C0392B">빨강</span>, 손실=<span style="color:#1565C0">파랑</span></li>
+      <li><b>RS 막대</b>: 종목이 전체 중 얼마나 센지 백분위. <span class="tag tg">초록 80+</span> <span class="tag ta">노랑 60~79</span> <span class="tag tr">빨강 &lt;60</span></li>
+      <li><b>단계(Stage)</b>: Stage2 = 상승추세(매수 구간)</li>
+      <li><b>패턴 뱃지</b>: Flat/Cup/Deep 베이스, VCP(변동성 수축)</li>
+      <li><b>강한 산업 TOP</b>: 지금 시장을 이끄는 산업(막대 길수록 강함)</li>
+      <li><b>스톱</b>: 그 종목의 현재 손절선 (수익 나면 위로 올라감)</li>
+    </ul>
+  </div>
+
+  <div class="sec" id="toss">
+    <h2>🔗 ⑧ 토스 연동 (선택)</h2>
+    <p>미장은 토스증권 Open API로 <b>읽기 전용</b>(잔고·보유·현재가) 연동이 가능해요. 안 해도 <code>order_gen.py --no-live-price</code>로 모의는 됩니다.</p>
+    <ul>
+      <li><code>config.example.json</code>을 복사해 <code>config.json</code> 생성 → 본인 키 입력</li>
+      <li>토스 개발자 설정에 <b>내 IP 등록</b> 필수 (안 하면 403)</li>
+      <li><code>toss_check.py</code>로 연결 점검</li>
+    </ul>
+    <div class="callout red"><b>실거래는 아직 없습니다.</b> 지금은 dry-run(지시서만)이고, 실제 주문은 검증 후 별도로 붙입니다. config.json은 절대 공유 금지.</div>
+  </div>
+
+  <div class="sec" id="terms">
+    <h2>📚 ⑨ 용어 사전</h2>
+    <table>
+      <tr><td><b>RS Rating(1~99)</b></td><td>전체 종목 중 상대강도 백분위. 99면 상위 1%</td></tr>
+      <tr><td><b>Market Pulse</b></td><td>IBD 시장 레짐 판단(FTD·분산일·투자비중)</td></tr>
+      <tr><td><b>Stage(1~4)</b></td><td>와인스타인 국면. Stage2=상승추세(매수 구간)</td></tr>
+      <tr><td><b>추세 템플릿</b></td><td>미너비니 상승추세 8조건. 정배열·신고가 근접 등</td></tr>
+      <tr><td><b>피벗</b></td><td>베이스 고점. 이 가격을 뚫으면 본격 상승으로 봄</td></tr>
+      <tr><td><b>A/D score</b></td><td>거래량 실린 상승/하락 비교. 매집 여부(0~100)</td></tr>
+      <tr><td><b>래칫 / 런너</b></td><td>래칫=손절선 위로만 올림 / 런너=+100% 대박주는 추세 태움</td></tr>
+    </table>
+  </div>
+
+  <div class="sec" id="bt">
+    <h2>⚗️ ⑩ 백테스트 · 검증 주의</h2>
+    <div class="callout red">
+      <b>백테스트는 낙관 편향이 있어요.</b> 유니버스가 '오늘 기준'이라 <b>생존편향</b>이 있고, 거래비용·세금도 단순화돼 있어요. 실제 성과는 백테스트보다 나쁩니다.
+    </div>
+    <p><b>지금은 실거래 금지</b>, dry-run 모의로 충분히 검증하는 단계입니다. 앞으로 쌓이는 모의 성적이 진짜 판단 근거예요. 실거래 전환은 반드시 별도 확인 후 소액 1주 테스트부터 시작합니다.</p>
+  </div>
+
+  <div class="foot">미국 추세매매 시스템 · 전략 가이드 · 모두 모의(dry-run)</div>
+  </main>
+</div></body></html>
