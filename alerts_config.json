@@ -1,0 +1,7 @@
+{
+  "_설명": "topic=폰 알림 받을 주제. control_topic=사이트 버튼이 명령 보내는 주제(PC가 수신). 둘 다 비번처럼 취급.",
+  "topic": "mp-alert-gkmh-7x3k9",
+  "control_topic": "mp-ctrl-gkmh-7x3k9",
+  "last_cmd_ts": 1783424734,
+  "alerts": []
+}

@@ -1,0 +1,35 @@
+name: price-alerts
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # 10분마다 (실제론 다소 지연될 수 있음)
+  workflow_dispatch: {}       # 수동 실행 버튼
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alerts
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install deps
+        run: pip install --quiet yfinance requests
+      - name: run alert checker
+        run: python cloud_alerts.py
+      - name: commit state if changed
+        run: |
+          git config user.name "alert-bot"
+          git config user.email "alert-bot@users.noreply.github.com"
+          if ! git diff --quiet alerts_config.json; then
+            git add alerts_config.json
+            git commit -m "update alert state"
+            git pull --rebase --autostash origin main || true
+            git push
+          fi
