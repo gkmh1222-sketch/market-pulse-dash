@@ -9,7 +9,7 @@
       "name": "미니나스닥",
       "level": 30000.0,
       "direction": "above",
-      "fired": true
+      "fired": false
     }
   ]
 }
