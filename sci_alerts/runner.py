@@ -35,18 +35,19 @@ def right_labels(ax, entries, levels=()):
     ax.figure.canvas.draw()
     height = ax.get_window_extent().height
     gap = 28 / height
-    low, high = 18 / height, 1 - 18 / height
+    low, high = 12 / height, 1 - 12 / height
     ordered = sorted(entries, key=lambda e: e[1])
-    positions = []
-    for _, value, _ in ordered:
-        y = ax.transAxes.inverted().transform(ax.transData.transform((0, value)))[1]
-        positions.append(max(low, min(high, y)))
-    for i in range(1, len(positions)):
-        positions[i] = max(positions[i], positions[i-1] + gap)
-    if positions and positions[-1] > high:
-        positions[-1] = high
-        for i in range(len(positions)-2, -1, -1):
-            positions[i] = min(positions[i], positions[i+1] - gap)
+    import numpy as np
+    from itertools import combinations
+    desired = [ax.transAxes.inverted().transform(ax.transData.transform((0, value)))[1]
+               for _, value, _ in ordered]
+    reserved = [ax.transAxes.inverted().transform(ax.transData.transform((0, v)))[1]
+                for v in levels]
+    candidates = [float(y) for y in np.linspace(low, high, 120)
+                  if all(abs(y-r) >= 22 / height for r in reserved)]
+    choices = (ys for ys in combinations(candidates, len(ordered))
+               if all(b-a >= gap for a,b in zip(ys,ys[1:])))
+    positions = min(choices, key=lambda ys: sum((y-d)**2 for y,d in zip(ys,desired)))
     labels = []
     for (name, value, color), y in zip(ordered, positions):
         # Threshold ticks occupy the inner gutter; boxed values occupy the outer one.
@@ -61,8 +62,16 @@ def right_labels(ax, entries, levels=()):
 
 
 def plot_report(symbol: str, data: dict, path: Path, period: str = "M") -> list[dict]:
+    from matplotlib.patches import Rectangle
+    from matplotlib import font_manager
+    if any(f.name == "Malgun Gothic" for f in font_manager.fontManager.ttflist):
+        plt.rcParams["font.family"] = "Malgun Gothic"
+    else:
+        plt.rcParams["font.family"] = "NanumGothic" if any(
+            f.name == "NanumGothic" for f in font_manager.fontManager.ttflist) else "DejaVu Sans"
+    plt.rcParams["axes.unicode_minus"] = False
     item = data[period]
-    count = {"D": 45, "W": 24, "M": 18}[period]
+    count = {"D": 45, "W": 24, "M": 24}[period]
     visible = item["ind"].iloc[-count:]
     prices = item["ohlc"].iloc[-count:]
     fig, axs = plt.subplots(4, 1, figsize=(9, 12), sharex=True,
@@ -74,7 +83,7 @@ def plot_report(symbol: str, data: dict, path: Path, period: str = "M") -> list[
             ("RSI Wilder14 + SMA9", visible, ["RSI", "RSI_signal"], [30, 70])]
     names = {"close": "Close", "K": "%K", "D": "%D", "CCI": "CCI",
              "CCI_signal": "SMA10", "RSI": "RSI", "RSI_signal": "SMA9"}
-    audit, all_labels = [], []
+    audit, all_labels, threshold_labels = [], [], []
     for ax, (title, frame, series, levels) in zip(axs, defs):
         entries = []
         for i, key in enumerate(series):
@@ -82,31 +91,61 @@ def plot_report(symbol: str, data: dict, path: Path, period: str = "M") -> list[
             if not pd.notna(value) or not math.isfinite(value):
                 raise DataQualityError(f"Non-finite latest chart value: {symbol}/{period}/{key}")
             color = "#252525" if i == 0 else "#1675ca"
-            ax.plot(frame.index, frame[key], color=color, lw=1.4, label=names[key])
-            ax.scatter([frame.index[-1]], [value], color=color, s=12)
+            color = "#252525" if i == 0 else "#2196f3"
+            if key == "close":
+                x = mdates.date2num(prices.index.to_pydatetime())
+                width = (float(pd.Series(x).diff().median()) if len(x)>1 else 1)*.58
+                for date, bar in zip(x, prices.itertuples()):
+                    candle_color = "#ff4747" if bar.close >= bar.open else "#2878e0"
+                    ax.vlines(date, bar.low, bar.high, color=candle_color, lw=.7)
+                    ax.add_patch(Rectangle((date-width/2,min(bar.open,bar.close)), width,
+                        max(abs(bar.close-bar.open),.001), facecolor="white",
+                        edgecolor=candle_color, lw=.8))
+                for window, ma_color in ((5,"#252525"),(10,"#2196f3"),(20,"#d000ff")):
+                    ma = item["ohlc"]["close"].rolling(window).mean().reindex(prices.index)
+                    ax.plot(prices.index, ma, color=ma_color, lw=1, label=f"MA {window}")
+            else:
+                ax.plot(frame.index, frame[key], color=color, lw=1,
+                        ls="--" if i and key != "D" else "-", label=names[key])
             entries.append((names[key], value, color))
             audit.append({"symbol": symbol, "period": period, "series": key,
                           "value": value, "display": f"{value:.2f}"})
-        for level in levels:
-            ax.axhline(level, color="#999999", ls="--", lw=.7)
-        ax.yaxis.tick_right()
         if levels:
-            ax.set_yticks(levels)
-        if title.startswith(("Stochastic", "RSI")):
-            ax.set_ylim(-8, 108)
+            main = frame[series[0]]
+            lower, upper = levels
+            upper_color = {"K":"#e600ff", "CCI":"#ff7777", "RSI":"#d8200b"}[series[0]]
+            lower_color = "#2475bf" if series[0] != "RSI" else "#6b80ff"
+            ax.fill_between(frame.index, upper, main, where=main>upper,
+                            interpolate=True, color=upper_color, alpha=.9 if series[0]=="K" else .65)
+            ax.fill_between(frame.index, lower, main, where=main<lower,
+                            interpolate=True, color=lower_color, alpha=.35)
+            for level, line_color, caption in ((lower,lower_color,"과매도"),(upper,upper_color,"과매수")):
+                ax.axhline(level, color=line_color, lw=.9)
+                threshold_labels.append(ax.text(1.18,level,f"{caption} {level:g}",
+                    transform=ax.get_yaxis_transform(),color=line_color,
+                    fontsize=9,fontweight="bold",va="center",clip_on=False))
+            if series[0] in ("K","RSI"):
+                ax.set_ylim(-2,108)
+                ax.set_yticks([0,25,50,75,100])
+            else:
+                ax.set_yticks([-100,0,100,200,300])
+        ax.yaxis.tick_right()
+        ax.axvline(frame.index[-1],color="#ff7777",lw=.6,alpha=.8)
         ax.margins(x=.025)
         ax.set_title(title, loc="left", fontsize=10)
-        ax.grid(alpha=.15)
-        ax.legend(loc="upper left", fontsize=8)
+        ax.grid(alpha=.2, linestyle=":")
+        ax.legend(loc="upper left", fontsize=7, ncol=3, frameon=False)
         all_labels.extend(right_labels(ax, entries, levels))
-    status = "Confirmed" if item["status"] == "확정" else "Provisional"
-    fig.suptitle(f"{symbol} SCI | {period} | {status}\nUS data through {item['asof_date']} | period {item['period_date']}", fontsize=13)
+    period_name = {"D":"일봉","W":"주봉","M":"월봉"}[period]
+    fig.suptitle(f"{symbol} {period_name} SCI | {item['status']}\n자료 기준 {item['asof_date']}", fontsize=13)
     axs[-1].xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=7))
     axs[-1].xaxis.set_major_formatter(mdates.DateFormatter("%Y/%m/%d"))
     axs[-1].tick_params(axis="x", labelrotation=25, labelsize=8)
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
     boxes = [label.get_bbox_patch().get_window_extent(renderer) for label in all_labels]
+    if any(a.overlaps(t.get_window_extent(renderer)) for a in boxes for t in threshold_labels):
+        raise DataQualityError("Latest-value label overlaps threshold caption")
     if any(a.overlaps(b) for i, a in enumerate(boxes) for b in boxes[i+1:]):
         raise DataQualityError("Latest-value chart labels overlap")
     if any(not fig.bbox.contains(b.x0, b.y0) or not fig.bbox.contains(b.x1, b.y1) for b in boxes):
