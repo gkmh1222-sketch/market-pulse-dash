@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,131 +28,41 @@ DISPLAY = {"K": "Stoch %K5", "D": "%D SMA3", "CCI": "CCI20", "CCI_signal": "CCI 
            "RSI": "RSI14", "RSI_signal": "RSI SMA9"}
 
 
-def right_labels(ax, entries, levels=()):
-    """Place labels in a separate right gutter, spaced in screen coordinates."""
-    from matplotlib.colors import to_rgba
-    ax.figure.canvas.draw()
-    height = ax.get_window_extent().height
-    gap = 28 / height
-    low, high = 12 / height, 1 - 12 / height
-    ordered = sorted(entries, key=lambda e: e[1])
-    import numpy as np
-    from itertools import combinations
-    desired = [ax.transAxes.inverted().transform(ax.transData.transform((0, value)))[1]
-               for _, value, _ in ordered]
-    reserved = [ax.transAxes.inverted().transform(ax.transData.transform((0, v)))[1]
-                for v in levels]
-    candidates = [float(y) for y in np.linspace(low, high, 120)
-                  if all(abs(y-r) >= 22 / height for r in reserved)]
-    choices = (ys for ys in combinations(candidates, len(ordered))
-               if all(b-a >= gap for a,b in zip(ys,ys[1:])))
-    positions = min(choices, key=lambda ys: sum((y-d)**2 for y,d in zip(ys,desired)))
-    labels = []
-    for (name, value, color), y in zip(ordered, positions):
-        # Threshold ticks occupy the inner gutter; boxed values occupy the outer one.
-        label = ax.annotate(f"{name} {value:.2f}", xy=(1, value),
-            xycoords=ax.get_yaxis_transform(), xytext=(1.18, y),
-            textcoords=ax.transAxes, ha="left", va="center", fontsize=9,
-            color=color, fontweight="bold", annotation_clip=False,
-            bbox=dict(boxstyle="round,pad=0.3", fc=to_rgba(color, .09), ec=color, lw=.7),
-            arrowprops=dict(arrowstyle="-", color=color, lw=.65))
-        labels.append(label)
-    return labels
-
-
-def plot_report(symbol: str, data: dict, path: Path, period: str = "M") -> list[dict]:
-    from matplotlib.patches import Rectangle
-    from matplotlib import font_manager
-    if any(f.name == "Malgun Gothic" for f in font_manager.fontManager.ttflist):
-        plt.rcParams["font.family"] = "Malgun Gothic"
-    else:
-        plt.rcParams["font.family"] = "NanumGothic" if any(
-            f.name == "NanumGothic" for f in font_manager.fontManager.ttflist) else "DejaVu Sans"
-    plt.rcParams["axes.unicode_minus"] = False
-    item = data[period]
-    count = {"D": 45, "W": 24, "M": 24}[period]
-    visible = item["ind"].iloc[-count:]
-    prices = item["ohlc"].iloc[-count:]
-    fig, axs = plt.subplots(4, 1, figsize=(9, 12), sharex=True,
-                            gridspec_kw={"height_ratios": [2, 1, 1, 1]})
-    fig.subplots_adjust(left=.09, right=.70, top=.91, bottom=.07, hspace=.20)
-    defs = [("Close", prices, ["close"], []),
-            ("Stochastic 5,3,1", visible, ["K", "D"], [20, 80]),
-            ("CCI 20 + SMA10", visible, ["CCI", "CCI_signal"], [-100, 100]),
-            ("RSI Wilder14 + SMA9", visible, ["RSI", "RSI_signal"], [30, 70])]
-    names = {"close": "Close", "K": "%K", "D": "%D", "CCI": "CCI",
-             "CCI_signal": "SMA10", "RSI": "RSI", "RSI_signal": "SMA9"}
-    audit, all_labels, threshold_labels = [], [], []
-    for ax, (title, frame, series, levels) in zip(axs, defs):
-        entries = []
-        for i, key in enumerate(series):
-            value = float(frame[key].iloc[-1])
-            if not pd.notna(value) or not math.isfinite(value):
-                raise DataQualityError(f"Non-finite latest chart value: {symbol}/{period}/{key}")
-            color = "#252525" if i == 0 else "#1675ca"
-            color = "#252525" if i == 0 else "#2196f3"
-            if key == "close":
-                x = mdates.date2num(prices.index.to_pydatetime())
-                width = (float(pd.Series(x).diff().median()) if len(x)>1 else 1)*.58
-                for date, bar in zip(x, prices.itertuples()):
-                    candle_color = "#ff4747" if bar.close >= bar.open else "#2878e0"
-                    ax.vlines(date, bar.low, bar.high, color=candle_color, lw=.7)
-                    ax.add_patch(Rectangle((date-width/2,min(bar.open,bar.close)), width,
-                        max(abs(bar.close-bar.open),.001), facecolor="white",
-                        edgecolor=candle_color, lw=.8))
-                for window, ma_color in ((5,"#252525"),(10,"#2196f3"),(20,"#d000ff")):
-                    ma = item["ohlc"]["close"].rolling(window).mean().reindex(prices.index)
-                    ax.plot(prices.index, ma, color=ma_color, lw=1, label=f"MA {window}")
-            else:
-                ax.plot(frame.index, frame[key], color=color, lw=1,
-                        ls="--" if i and key != "D" else "-", label=names[key])
-            entries.append((names[key], value, color))
-            audit.append({"symbol": symbol, "period": period, "series": key,
-                          "value": value, "display": f"{value:.2f}"})
-        if levels:
-            main = frame[series[0]]
-            lower, upper = levels
-            upper_color = {"K":"#e600ff", "CCI":"#ff7777", "RSI":"#d8200b"}[series[0]]
-            lower_color = "#2475bf" if series[0] != "RSI" else "#6b80ff"
-            ax.fill_between(frame.index, upper, main, where=main>upper,
-                            interpolate=True, color=upper_color, alpha=.9 if series[0]=="K" else .65)
-            ax.fill_between(frame.index, lower, main, where=main<lower,
-                            interpolate=True, color=lower_color, alpha=.35)
-            for level, line_color, caption in ((lower,lower_color,"과매도"),(upper,upper_color,"과매수")):
-                ax.axhline(level, color=line_color, lw=.9)
-                threshold_labels.append(ax.text(1.18,level,f"{caption} {level:g}",
-                    transform=ax.get_yaxis_transform(),color=line_color,
-                    fontsize=9,fontweight="bold",va="center",clip_on=False))
-            if series[0] in ("K","RSI"):
-                ax.set_ylim(-2,108)
-                ax.set_yticks([0,25,50,75,100])
-            else:
-                ax.set_yticks([-100,0,100,200,300])
-        ax.yaxis.tick_right()
-        ax.axvline(frame.index[-1],color="#ff7777",lw=.6,alpha=.8)
-        ax.margins(x=.025)
-        ax.set_title(title, loc="left", fontsize=10)
-        ax.grid(alpha=.2, linestyle=":")
-        ax.legend(loc="upper left", fontsize=7, ncol=3, frameon=False)
-        all_labels.extend(right_labels(ax, entries, levels))
-    period_name = {"D":"일봉","W":"주봉","M":"월봉"}[period]
-    fig.suptitle(f"{symbol} {period_name} SCI | {item['status']}\n자료 기준 {item['asof_date']}", fontsize=13)
-    axs[-1].xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=7))
-    axs[-1].xaxis.set_major_formatter(mdates.DateFormatter("%Y/%m/%d"))
-    axs[-1].tick_params(axis="x", labelrotation=25, labelsize=8)
-    fig.canvas.draw()
-    renderer = fig.canvas.get_renderer()
-    boxes = [label.get_bbox_patch().get_window_extent(renderer) for label in all_labels]
-    if any(a.overlaps(t.get_window_extent(renderer)) for a in boxes for t in threshold_labels):
-        raise DataQualityError("Latest-value label overlaps threshold caption")
-    if any(a.overlaps(b) for i, a in enumerate(boxes) for b in boxes[i+1:]):
-        raise DataQualityError("Latest-value chart labels overlap")
-    if any(not fig.bbox.contains(b.x0, b.y0) or not fig.bbox.contains(b.x1, b.y1) for b in boxes):
-        raise DataQualityError("Latest-value chart label clipped")
+def plot_report(symbol: str, data: dict, path: Path) -> None:
+    fig, axs = plt.subplots(3, 3, figsize=(15, 12))
+    defs = [("Stochastic 5,3,1", ["K", "D"], [20, 80]),
+            ("CCI 20 + SMA10", ["CCI", "CCI_signal"], [-100, 100]),
+            ("RSI Wilder14 + SMA9", ["RSI", "RSI_signal"], [30, 70])]
+    for row, period in enumerate(("D", "W", "M")):
+        item = data[period]
+        ind = item["ind"]
+        # More context for short timeframes, but monthly is naturally sparse.
+        count = {"D": 45, "W": 24, "M": 18}[period]
+        for col, (name, series, levels) in enumerate(defs):
+            ax = axs[row, col]
+            visible = ind.iloc[-count:]
+            for s in series:
+                ax.plot(visible.index, visible[s], linewidth=1.5, label=s)
+                valid = visible[s].dropna()
+                if len(valid):
+                    v = valid.iloc[-1]
+                    ax.scatter([valid.index[-1]], [v], s=10)
+                    ax.annotate(f"{v:.1f}", (valid.index[-1], v), fontsize=8,
+                                xytext=(-15, 7 if s == series[0] else -13),
+                                textcoords="offset points")
+            for level in levels:
+                ax.axhline(level, color="gray", linestyle="--", linewidth=0.8, alpha=0.65)
+            ax.set_title(f"{period} {name} | {'Confirmed' if item['status'] == '확정' else 'Provisional'}", fontsize=10)
+            ax.grid(alpha=0.2)
+            ax.legend(loc="best", fontsize=8)
+            ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=3, maxticks=5))
+            ax.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
+            ax.tick_params(axis="x", labelrotation=30, labelsize=8)
+    fig.suptitle(f"{symbol} SCI | US trading date {data['D']['asof_date']} | D / W / M", fontsize=14)
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=150)
+    fig.savefig(path, dpi=120)
     plt.close(fig)
-    return audit
 
 
 def fmt(x: float) -> str:
@@ -220,25 +129,23 @@ def split_message(text: str, limit: int = 3700) -> list[str]:
     return chunks
 
 
-def send_telegram(token: str, chat_id: str, text: str, images: list[Path]) -> list[dict]:
-    receipts = []
+def send_telegram(token: str, chat_id: str, text: str, images: list[Path]) -> None:
     base = f"https://api.telegram.org/bot{token}"
     for chunk in split_message(text):
         response = requests.post(base + "/sendMessage", json={"chat_id": chat_id, "text": chunk}, timeout=35)
-        if not response.ok or not response.json().get("ok"):
-            raise RuntimeError("Telegram sendMessage rejected (credentials redacted)")
-        receipts.append({"kind": "text", "message_id": response.json()["result"]["message_id"]})
+        response.raise_for_status()
+        if not response.json().get("ok"):
+            raise RuntimeError("텔레그램 sendMessage API 오류")
     for path in images:
         with path.open("rb") as f:
             response = requests.post(base + "/sendPhoto", data={"chat_id": chat_id, "caption": path.stem},
                                      files={"photo": (path.name, f, "image/png")}, timeout=60)
-        if not response.ok or not response.json().get("ok"):
-            raise RuntimeError("Telegram sendPhoto rejected (credentials redacted)")
-        receipts.append({"kind": "photo", "file": path.name, "message_id": response.json()["result"]["message_id"]})
-    return receipts
+        response.raise_for_status()
+        if not response.json().get("ok"):
+            raise RuntimeError("텔레그램 sendPhoto API 오류")
 
 
-def run(session: str, *, dry_run: bool = False, now: datetime | None = None, resend: bool = False) -> dict:
+def run(session: str, *, dry_run: bool = False, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     kst = now.astimezone(KST)
     if not dry_run:
@@ -261,7 +168,7 @@ def run(session: str, *, dry_run: bool = False, now: datetime | None = None, res
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
     report_id = f"{session}:{expected.isoformat()}"
-    if not resend and not dry_run and token and chat_id and prior.get("last_sent_report_id") == report_id:
+    if not dry_run and token and chat_id and prior.get("last_sent_report_id") == report_id:
         print(f"SKIPPED: duplicate Telegram report {report_id}")
         return {"skipped": True, "reason": "already sent"}
     previous_close_date = prior.get("last_verified_date")
@@ -277,15 +184,9 @@ def run(session: str, *, dry_run: bool = False, now: datetime | None = None, res
     text = "\n\n".join([title, summarize(soxx,vix), soxx_text, vix_text,
                           "수식: Fast Stoch K5/D SMA3; CCI HLC3(20)/SMA10; RSI Wilder14/SMA9. HTS 원본 수식과의 완전한 일치 여부는 미검증."])
     PLOT_DIR.mkdir(parents=True, exist_ok=True)
-    paths, label_audit = [], []
-    for symbol, analysis in (("SOXX", soxx), ("VIX", vix)):
-        for period in ("D", "W", "M"):
-            path = PLOT_DIR / f"SCI_{symbol}_{period}_{expected}.png"
-            label_audit.extend(plot_report(symbol, analysis, path, period))
-            paths.append(path)
-    (PLOT_DIR / "label_audit.json").write_text(
-        json.dumps(label_audit, indent=2), encoding="utf-8")
-    print(f"Chart labels verified: {len(label_audit)} values across {len(paths)} charts; no overlap/clipping")
+    paths = [PLOT_DIR / f"SCI_SOXX_{expected}.png", PLOT_DIR / f"SCI_VIX_{expected}.png"]
+    plot_report("SOXX", soxx, paths[0])
+    plot_report("VIX", vix, paths[1])
     (PLOT_DIR / "latest_report.txt").write_text(text, encoding="utf-8")
     updated = {"last_verified_date": expected.isoformat(), "source_checked_at_kst": kst.isoformat(),
                "last_sent_report_id": prior.get("last_sent_report_id", ""),
@@ -293,12 +194,7 @@ def run(session: str, *, dry_run: bool = False, now: datetime | None = None, res
     if dry_run:
         print(f"DRY RUN - no Telegram or persistent state changes. {len(text)} report characters.")
     elif token and chat_id:
-        try:
-            receipts = send_telegram(token, chat_id, text, paths)
-        except requests.RequestException:
-            raise RuntimeError("Telegram transport failed (credentials redacted)") from None
-        (PLOT_DIR / "telegram_receipts.json").write_text(
-            json.dumps(receipts, indent=2), encoding="utf-8")
+        send_telegram(token, chat_id, text, paths)
         updated["last_sent_report_id"] = report_id
         STATE.parent.mkdir(parents=True, exist_ok=True)
         STATE.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -315,10 +211,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--session", required=True, choices=["morning", "evening"])
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--resend", action="store_true", help="Explicit manual resend; bypass report deduplication only")
     args = parser.parse_args()
     try:
-        result = run(args.session, dry_run=args.dry_run, resend=args.resend)
+        result = run(args.session, dry_run=args.dry_run)
         print(json.dumps(result, ensure_ascii=False, indent=2))
     except Exception as exc:
         # Fail closed: no stale/made-up values or misleading Telegram messages.
