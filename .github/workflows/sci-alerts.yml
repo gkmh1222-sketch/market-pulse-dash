@@ -1,1 +1,73 @@
-The requested file reference is not currently visible. Use files.search or files.list to rediscover the file, then retry with a returned ref_id or file_id.
+name: SOXX-VIX SCI verified Telegram
+on:
+  schedule:
+    # KST Mon-Sat 09:00
+    - cron: '0 0 * * 1-6'
+    # KST Mon-Fri 18:30
+    - cron: '30 9 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      session:
+        description: 'Choose report type'
+        type: choice
+        required: true
+        default: morning
+        options:
+          - morning
+          - evening
+      dry_run:
+        description: 'Validate without Telegram delivery'
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: soxx-vix-sci
+  cancel-in-progress: false
+
+jobs:
+  calculate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install --quiet -r sci_alerts/requirements.txt
+      - name: Validate data, calculate SCI, render charts and deliver
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.SCI_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.SCI_TELEGRAM_CHAT_ID }}
+          SCI_RUN_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.session || (github.event.schedule == '0 0 * * 1-6' && 'morning' || 'evening') }}
+          SCI_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+        run: |
+          if [[ "$SCI_DRY_RUN" == "true" ]]; then
+            python -m sci_alerts.runner --session "$SCI_RUN_MODE" --dry-run
+          else
+            python -m sci_alerts.runner --session "$SCI_RUN_MODE"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sci-report-${{ github.run_id }}
+          path: sci_alerts/output/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Persist delivery state
+        if: success()
+        run: |
+          if [ -f sci_alerts/state/last_state.json ]; then
+            git config user.name 'sci-bot'
+            git config user.email 'sci-bot@users.noreply.github.com'
+            git add sci_alerts/state/last_state.json
+            if ! git diff --cached --quiet; then
+              git commit -m 'Save SCI delivery state [skip ci]'
+              git pull --rebase --autostash origin main
+              git push origin HEAD:main
+            fi
+          fi
