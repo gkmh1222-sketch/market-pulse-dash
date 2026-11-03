@@ -116,7 +116,40 @@ def test_full_report_offline(monkeypatch,tmp_path):
     assert not report["sent"]
     assert report["row_counts"]=={"SOXX":1650,"VIX":1650}
     assert (tmp_path/"output"/"latest_report.txt").exists()
-    assert len(report["charts"])==2
+    assert len(report["charts"])==6
     for p in report["charts"]:
         assert __import__("os").path.getsize(p)>100_000
     assert not (tmp_path/"state.json").exists()
+
+def test_latest_labels_use_final_row_and_exact_values(tmp_path):
+    import json
+    from sci_alerts.runner import plot_report
+    result = analyze(bars(), datetime(2026,11,3,tzinfo=timezone.utc))
+    for period in ('D','W','M'):
+        audit = plot_report('SOXX', result, tmp_path/f'{period}.png', period)
+        assert len(audit) == 7
+        for entry in audit:
+            source = result[period]['ohlc' if entry['series']=='close' else 'ind']
+            value = float(source[entry['series']].iloc[-1])
+            assert entry['value'] == value
+            assert entry['display'] == f'{value:.2f}'
+
+
+@pytest.mark.parametrize('value', [0,20,30,70,80,100])
+def test_close_and_threshold_labels_do_not_collide(value):
+    import matplotlib.pyplot as plt
+    from sci_alerts.runner import right_labels
+    fig, ax = plt.subplots(figsize=(6,3))
+    fig.subplots_adjust(right=.65)
+    ax.set_ylim(-8,108)
+    ax.yaxis.tick_right()
+    ax.set_yticks([20,80])
+    labels = right_labels(ax, [('K',value,'black'),('D',value+.001,'blue')], [20,80])
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    boxes = [label.get_bbox_patch().get_window_extent(renderer) for label in labels]
+    assert not boxes[0].overlaps(boxes[1])
+    for tick in ax.get_yticklabels():
+        assert all(not box.overlaps(tick.get_window_extent(renderer)) for box in boxes)
+    plt.close(fig)
+

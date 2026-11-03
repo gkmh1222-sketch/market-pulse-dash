@@ -7,7 +7,7 @@ This module is independent of the existing `cloud_alerts.py` and `alerts.yml`.
 - SOXX: Yahoo Finance 7-year chart OHLC, with Stooq full-series fallback and split discontinuity check. Always disclose split/adj-close limitations. No fabricated numbers.
 - Require at least 1,100 daily rows spanning 60 calendar months, no duplicate/missing/invalid OHLC, and newest expected completed U.S. regular session. If invalid, **fail closed** rather than send stale or misleading alerts.
 - Indicators independently calculated on daily/weekly/monthly OHLC: Stochastic Fast %K5/D SMA3; CCI(HLC3) 20 + SMA10; Wilder RSI14 + SMA9. Crossovers are distinct from threshold crossings and slope changes. In-progress weekly/monthly bars are provisional.
-- Chart images have 3 timeframes × 3 indicator axes for each instrument.
+- Six chart images: one per instrument/timeframe, each with Close, Stochastic, CCI and RSI panels. Boxed right-side latest values match line colors; threshold ticks remain separate. Screen-space spacing and leader lines prevent collisions. Rendering fails on overlapping/clipped labels. `label_audit.json` records all 42 plotted latest values.
 - This is **not validated to match a proprietary HTS formula**.
 
 ## Secrets and verification
@@ -34,3 +34,10 @@ python -m sci_alerts.runner --session morning --dry-run
 The last command requires outgoing internet access to Yahoo, Cboe, and, optionally, Stooq. Integration tests use synthetic data and **do not verify live prices**.
 
 Source: https://www.cboe.com/tradable_products/vix/vix_historical_data
+
+## Manual resend and delivery evidence
+`workflow_dispatch` accepts `resend=true` (default false), or locally `--resend`.
+This bypasses only report-ID deduplication; weekday, freshness and all data validation remain active.
+Scheduled runs retain deduplication and the original KST schedule.
+Successful Telegram API responses are recorded in `telegram_receipts.json` with message IDs and image filenames, without credentials or destination IDs. API acceptance does not prove the recipient has viewed the messages.
+

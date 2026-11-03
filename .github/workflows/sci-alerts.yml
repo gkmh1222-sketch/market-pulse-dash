@@ -21,6 +21,12 @@ on:
         required: true
         default: true
 
+      resend:
+        description: 'Explicitly resend a previously delivered report'
+        type: boolean
+        required: true
+        default: false
+
 permissions:
   contents: write
 
@@ -46,12 +52,15 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.SCI_TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.SCI_TELEGRAM_CHAT_ID }}
           SCI_RUN_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.session || (github.event.schedule == '0 0 * * 1-6' && 'morning' || 'evening') }}
+          SCI_RESEND: ${{ github.event_name == 'workflow_dispatch' && inputs.resend || false }}
           SCI_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
         run: |
+          resend_args=()
+          if [[ "$SCI_RESEND" == "true" ]]; then resend_args+=(--resend); fi
           if [[ "$SCI_DRY_RUN" == "true" ]]; then
-            python -m sci_alerts.runner --session "$SCI_RUN_MODE" --dry-run
+            python -m sci_alerts.runner --session "$SCI_RUN_MODE" --dry-run "${resend_args[@]}"
           else
-            python -m sci_alerts.runner --session "$SCI_RUN_MODE"
+            python -m sci_alerts.runner --session "$SCI_RUN_MODE" "${resend_args[@]}"
           fi
       - uses: actions/upload-artifact@v4
         if: always()
@@ -73,3 +82,4 @@ jobs:
               git push origin HEAD:main
             fi
           fi
+

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,41 +29,92 @@ DISPLAY = {"K": "Stoch %K5", "D": "%D SMA3", "CCI": "CCI20", "CCI_signal": "CCI 
            "RSI": "RSI14", "RSI_signal": "RSI SMA9"}
 
 
-def plot_report(symbol: str, data: dict, path: Path) -> None:
-    fig, axs = plt.subplots(3, 3, figsize=(15, 12))
-    defs = [("Stochastic 5,3,1", ["K", "D"], [20, 80]),
-            ("CCI 20 + SMA10", ["CCI", "CCI_signal"], [-100, 100]),
-            ("RSI Wilder14 + SMA9", ["RSI", "RSI_signal"], [30, 70])]
-    for row, period in enumerate(("D", "W", "M")):
-        item = data[period]
-        ind = item["ind"]
-        # More context for short timeframes, but monthly is naturally sparse.
-        count = {"D": 45, "W": 24, "M": 18}[period]
-        for col, (name, series, levels) in enumerate(defs):
-            ax = axs[row, col]
-            visible = ind.iloc[-count:]
-            for s in series:
-                ax.plot(visible.index, visible[s], linewidth=1.5, label=s)
-                valid = visible[s].dropna()
-                if len(valid):
-                    v = valid.iloc[-1]
-                    ax.scatter([valid.index[-1]], [v], s=10)
-                    ax.annotate(f"{v:.1f}", (valid.index[-1], v), fontsize=8,
-                                xytext=(-15, 7 if s == series[0] else -13),
-                                textcoords="offset points")
-            for level in levels:
-                ax.axhline(level, color="gray", linestyle="--", linewidth=0.8, alpha=0.65)
-            ax.set_title(f"{period} {name} | {'Confirmed' if item['status'] == '확정' else 'Provisional'}", fontsize=10)
-            ax.grid(alpha=0.2)
-            ax.legend(loc="best", fontsize=8)
-            ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=3, maxticks=5))
-            ax.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
-            ax.tick_params(axis="x", labelrotation=30, labelsize=8)
-    fig.suptitle(f"{symbol} SCI | US trading date {data['D']['asof_date']} | D / W / M", fontsize=14)
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
+def right_labels(ax, entries, levels=()):
+    """Place labels in a separate right gutter, spaced in screen coordinates."""
+    from matplotlib.colors import to_rgba
+    ax.figure.canvas.draw()
+    height = ax.get_window_extent().height
+    gap = 28 / height
+    low, high = 18 / height, 1 - 18 / height
+    ordered = sorted(entries, key=lambda e: e[1])
+    positions = []
+    for _, value, _ in ordered:
+        y = ax.transAxes.inverted().transform(ax.transData.transform((0, value)))[1]
+        positions.append(max(low, min(high, y)))
+    for i in range(1, len(positions)):
+        positions[i] = max(positions[i], positions[i-1] + gap)
+    if positions and positions[-1] > high:
+        positions[-1] = high
+        for i in range(len(positions)-2, -1, -1):
+            positions[i] = min(positions[i], positions[i+1] - gap)
+    labels = []
+    for (name, value, color), y in zip(ordered, positions):
+        # Threshold ticks occupy the inner gutter; boxed values occupy the outer one.
+        label = ax.annotate(f"{name} {value:.2f}", xy=(1, value),
+            xycoords=ax.get_yaxis_transform(), xytext=(1.18, y),
+            textcoords=ax.transAxes, ha="left", va="center", fontsize=9,
+            color=color, fontweight="bold", annotation_clip=False,
+            bbox=dict(boxstyle="round,pad=0.3", fc=to_rgba(color, .09), ec=color, lw=.7),
+            arrowprops=dict(arrowstyle="-", color=color, lw=.65))
+        labels.append(label)
+    return labels
+
+
+def plot_report(symbol: str, data: dict, path: Path, period: str = "M") -> list[dict]:
+    item = data[period]
+    count = {"D": 45, "W": 24, "M": 18}[period]
+    visible = item["ind"].iloc[-count:]
+    prices = item["ohlc"].iloc[-count:]
+    fig, axs = plt.subplots(4, 1, figsize=(9, 12), sharex=True,
+                            gridspec_kw={"height_ratios": [2, 1, 1, 1]})
+    fig.subplots_adjust(left=.09, right=.70, top=.91, bottom=.07, hspace=.20)
+    defs = [("Close", prices, ["close"], []),
+            ("Stochastic 5,3,1", visible, ["K", "D"], [20, 80]),
+            ("CCI 20 + SMA10", visible, ["CCI", "CCI_signal"], [-100, 100]),
+            ("RSI Wilder14 + SMA9", visible, ["RSI", "RSI_signal"], [30, 70])]
+    names = {"close": "Close", "K": "%K", "D": "%D", "CCI": "CCI",
+             "CCI_signal": "SMA10", "RSI": "RSI", "RSI_signal": "SMA9"}
+    audit, all_labels = [], []
+    for ax, (title, frame, series, levels) in zip(axs, defs):
+        entries = []
+        for i, key in enumerate(series):
+            value = float(frame[key].iloc[-1])
+            if not pd.notna(value) or not math.isfinite(value):
+                raise DataQualityError(f"Non-finite latest chart value: {symbol}/{period}/{key}")
+            color = "#252525" if i == 0 else "#1675ca"
+            ax.plot(frame.index, frame[key], color=color, lw=1.4, label=names[key])
+            ax.scatter([frame.index[-1]], [value], color=color, s=12)
+            entries.append((names[key], value, color))
+            audit.append({"symbol": symbol, "period": period, "series": key,
+                          "value": value, "display": f"{value:.2f}"})
+        for level in levels:
+            ax.axhline(level, color="#999999", ls="--", lw=.7)
+        ax.yaxis.tick_right()
+        if levels:
+            ax.set_yticks(levels)
+        if title.startswith(("Stochastic", "RSI")):
+            ax.set_ylim(-8, 108)
+        ax.margins(x=.025)
+        ax.set_title(title, loc="left", fontsize=10)
+        ax.grid(alpha=.15)
+        ax.legend(loc="upper left", fontsize=8)
+        all_labels.extend(right_labels(ax, entries, levels))
+    status = "Confirmed" if item["status"] == "확정" else "Provisional"
+    fig.suptitle(f"{symbol} SCI | {period} | {status}\nUS data through {item['asof_date']} | period {item['period_date']}", fontsize=13)
+    axs[-1].xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=7))
+    axs[-1].xaxis.set_major_formatter(mdates.DateFormatter("%Y/%m/%d"))
+    axs[-1].tick_params(axis="x", labelrotation=25, labelsize=8)
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    boxes = [label.get_bbox_patch().get_window_extent(renderer) for label in all_labels]
+    if any(a.overlaps(b) for i, a in enumerate(boxes) for b in boxes[i+1:]):
+        raise DataQualityError("Latest-value chart labels overlap")
+    if any(not fig.bbox.contains(b.x0, b.y0) or not fig.bbox.contains(b.x1, b.y1) for b in boxes):
+        raise DataQualityError("Latest-value chart label clipped")
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=120)
+    fig.savefig(path, dpi=150)
     plt.close(fig)
+    return audit
 
 
 def fmt(x: float) -> str:
@@ -129,23 +181,25 @@ def split_message(text: str, limit: int = 3700) -> list[str]:
     return chunks
 
 
-def send_telegram(token: str, chat_id: str, text: str, images: list[Path]) -> None:
+def send_telegram(token: str, chat_id: str, text: str, images: list[Path]) -> list[dict]:
+    receipts = []
     base = f"https://api.telegram.org/bot{token}"
     for chunk in split_message(text):
         response = requests.post(base + "/sendMessage", json={"chat_id": chat_id, "text": chunk}, timeout=35)
-        response.raise_for_status()
-        if not response.json().get("ok"):
-            raise RuntimeError("텔레그램 sendMessage API 오류")
+        if not response.ok or not response.json().get("ok"):
+            raise RuntimeError("Telegram sendMessage rejected (credentials redacted)")
+        receipts.append({"kind": "text", "message_id": response.json()["result"]["message_id"]})
     for path in images:
         with path.open("rb") as f:
             response = requests.post(base + "/sendPhoto", data={"chat_id": chat_id, "caption": path.stem},
                                      files={"photo": (path.name, f, "image/png")}, timeout=60)
-        response.raise_for_status()
-        if not response.json().get("ok"):
-            raise RuntimeError("텔레그램 sendPhoto API 오류")
+        if not response.ok or not response.json().get("ok"):
+            raise RuntimeError("Telegram sendPhoto rejected (credentials redacted)")
+        receipts.append({"kind": "photo", "file": path.name, "message_id": response.json()["result"]["message_id"]})
+    return receipts
 
 
-def run(session: str, *, dry_run: bool = False, now: datetime | None = None) -> dict:
+def run(session: str, *, dry_run: bool = False, now: datetime | None = None, resend: bool = False) -> dict:
     now = now or datetime.now(timezone.utc)
     kst = now.astimezone(KST)
     if not dry_run:
@@ -168,7 +222,7 @@ def run(session: str, *, dry_run: bool = False, now: datetime | None = None) -> 
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
     report_id = f"{session}:{expected.isoformat()}"
-    if not dry_run and token and chat_id and prior.get("last_sent_report_id") == report_id:
+    if not resend and not dry_run and token and chat_id and prior.get("last_sent_report_id") == report_id:
         print(f"SKIPPED: duplicate Telegram report {report_id}")
         return {"skipped": True, "reason": "already sent"}
     previous_close_date = prior.get("last_verified_date")
@@ -184,9 +238,15 @@ def run(session: str, *, dry_run: bool = False, now: datetime | None = None) -> 
     text = "\n\n".join([title, summarize(soxx,vix), soxx_text, vix_text,
                           "수식: Fast Stoch K5/D SMA3; CCI HLC3(20)/SMA10; RSI Wilder14/SMA9. HTS 원본 수식과의 완전한 일치 여부는 미검증."])
     PLOT_DIR.mkdir(parents=True, exist_ok=True)
-    paths = [PLOT_DIR / f"SCI_SOXX_{expected}.png", PLOT_DIR / f"SCI_VIX_{expected}.png"]
-    plot_report("SOXX", soxx, paths[0])
-    plot_report("VIX", vix, paths[1])
+    paths, label_audit = [], []
+    for symbol, analysis in (("SOXX", soxx), ("VIX", vix)):
+        for period in ("D", "W", "M"):
+            path = PLOT_DIR / f"SCI_{symbol}_{period}_{expected}.png"
+            label_audit.extend(plot_report(symbol, analysis, path, period))
+            paths.append(path)
+    (PLOT_DIR / "label_audit.json").write_text(
+        json.dumps(label_audit, indent=2), encoding="utf-8")
+    print(f"Chart labels verified: {len(label_audit)} values across {len(paths)} charts; no overlap/clipping")
     (PLOT_DIR / "latest_report.txt").write_text(text, encoding="utf-8")
     updated = {"last_verified_date": expected.isoformat(), "source_checked_at_kst": kst.isoformat(),
                "last_sent_report_id": prior.get("last_sent_report_id", ""),
@@ -194,7 +254,12 @@ def run(session: str, *, dry_run: bool = False, now: datetime | None = None) -> 
     if dry_run:
         print(f"DRY RUN - no Telegram or persistent state changes. {len(text)} report characters.")
     elif token and chat_id:
-        send_telegram(token, chat_id, text, paths)
+        try:
+            receipts = send_telegram(token, chat_id, text, paths)
+        except requests.RequestException:
+            raise RuntimeError("Telegram transport failed (credentials redacted)") from None
+        (PLOT_DIR / "telegram_receipts.json").write_text(
+            json.dumps(receipts, indent=2), encoding="utf-8")
         updated["last_sent_report_id"] = report_id
         STATE.parent.mkdir(parents=True, exist_ok=True)
         STATE.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -211,9 +276,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--session", required=True, choices=["morning", "evening"])
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--resend", action="store_true", help="Explicit manual resend; bypass report deduplication only")
     args = parser.parse_args()
     try:
-        result = run(args.session, dry_run=args.dry_run)
+        result = run(args.session, dry_run=args.dry_run, resend=args.resend)
         print(json.dumps(result, ensure_ascii=False, indent=2))
     except Exception as exc:
         # Fail closed: no stale/made-up values or misleading Telegram messages.
